@@ -1,0 +1,8 @@
+run:
+  name: "quick_smoke"
+  models: ["M-01", "M-06"]
+  libraries: []
+  datasets: ["D-01"]
+  evaluators: ["L1"]
+  max_pages: 20
+  warmup_pages: 3

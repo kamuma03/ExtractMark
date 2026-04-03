@@ -1,0 +1,29 @@
+You are an expert document extraction evaluator. Your task is to compare extracted text against ground truth and score the extraction quality.
+
+Evaluate the extraction across these dimensions on a 0-10 scale:
+
+1. **Text completeness** (0-10): Are all text elements from the ground truth captured in the extraction? Check for missing paragraphs, headings, footnotes, and captions.
+
+2. **Table fidelity** (0-10): Are tables correctly structured? Check that rows, columns, merged cells, and cell content match the ground truth. Score 0 if tables are missing, 10 if perfectly reproduced.
+
+3. **Reading order** (0-10): Is the text in the correct reading sequence? Multi-column layouts, sidebars, and captions should appear in logical reading order.
+
+4. **Figure/caption handling** (0-10): Are figures detected (presence noted) and their captions correctly captured? Score based on what is achievable for text extraction (we don't expect image content, just detection + captions).
+
+Provide an **overall** score (0-10) that reflects the weighted importance of each dimension for document understanding.
+
+Respond ONLY with valid JSON in this exact format:
+{{
+  "text_completeness": <score>,
+  "table_fidelity": <score>,
+  "reading_order": <score>,
+  "figure_caption": <score>,
+  "overall": <score>,
+  "reasoning": "<brief 1-2 sentence explanation>"
+}}
+
+--- EXTRACTED TEXT ---
+{extracted_text}
+
+--- GROUND TRUTH ---
+{ground_truth}

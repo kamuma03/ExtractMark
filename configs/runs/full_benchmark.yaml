@@ -1,0 +1,32 @@
+run:
+  name: "full_benchmark"
+  models:
+    - "M-01"
+    - "M-02"
+    - "M-03"
+    - "M-04"
+    - "M-06"
+    - "M-07"
+    - "M-08"
+    - "M-09"
+    - "M-10"
+    - "M-11"
+    - "M-12"
+    - "M-13"
+  libraries:
+    - "LIB-01"
+    - "LIB-02"
+    - "LIB-08"
+    - "LIB-09"
+    - "LIB-10"
+    - "LIB-12"
+    - "LIB-13"
+  datasets:
+    - "D-01"
+    - "D-02"
+    - "D-03"
+    - "D-04"
+    - "D-05"
+    - "D-06"
+  evaluators: ["L1", "L2", "L3", "L4"]
+  warmup_pages: 3

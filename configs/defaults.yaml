@@ -1,0 +1,14 @@
+pipeline:
+  warmup_pages: 3
+  save_raw_output: true
+  normalize_before_eval: true
+
+evaluation:
+  sbert_model: "all-MiniLM-L12-v2"
+  judge_model: "L-01"
+  judge_temperature: 0.0
+  judge_seed: 42
+
+output:
+  results_dir: "results"
+  report_dir: "report"

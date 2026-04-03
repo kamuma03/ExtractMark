@@ -1,0 +1,197 @@
+models:
+  M-01:
+    name: "Nemotron Parse v1.1"
+    hf_model_id: "nvidia/NVIDIA-Nemotron-Parse-v1.1"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "nemotron_parse"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-02:
+    name: "LightOnOCR-2-1B-bbox-soup"
+    hf_model_id: "lightonai/LightOnOCR-2-1B-bbox-soup"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "generic_ocr"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.2
+      seed: 42
+      max_tokens: 4096
+      repetition_penalty: 1.1
+
+  M-03:
+    name: "GOT-OCR 2.0"
+    hf_model_id: "ucaslcl/GOT-OCR2_0"
+    dtype: "bfloat16"
+    supports_bbox: false
+    prompt_template: "got_ocr"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-04:
+    name: "OlmOCR-2"
+    hf_model_id: "allenai/olmocr2-7b"
+    dtype: "bfloat16"
+    supports_bbox: false
+    prompt_template: "olmocr"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-06:
+    name: "GLM-OCR"
+    hf_model_id: "THUDM/glm-ocr-2b"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "glm_ocr"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-07:
+    name: "Qwen2.5-VL-7B"
+    hf_model_id: "Qwen/Qwen2.5-VL-7B-Instruct"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "qwen_vl"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-08:
+    name: "Qwen2.5-VL-3B"
+    hf_model_id: "Qwen/Qwen2.5-VL-3B-Instruct"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "qwen_vl"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-09:
+    name: "InternVL2.5-4B"
+    hf_model_id: "OpenGVLab/InternVL2_5-4B"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "internvl"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-10:
+    name: "OCRFlux-3B"
+    hf_model_id: "Aryn/OCRFlux-3B"
+    dtype: "bfloat16"
+    supports_bbox: false
+    prompt_template: "generic_ocr"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-11:
+    name: "DeepSeek-OCR"
+    hf_model_id: "deepseek-ai/DeepSeek-OCR"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "deepseek_ocr"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-12:
+    name: "Chandra 2"
+    hf_model_id: "datalab-to/chandra-ocr-2"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "chandra"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  M-13:
+    name: "PaddleOCR-VL"
+    hf_model_id: "PaddlePaddle/PaddleOCR-VL"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "generic_ocr"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  # LLM Backbone Candidates (pipeline extraction stage)
+  L-01:
+    name: "Qwen2.5-7B"
+    hf_model_id: "Qwen/Qwen2.5-7B-Instruct"
+    dtype: "bfloat16"
+    supports_bbox: false
+    prompt_template: "extraction_llm"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  L-02:
+    name: "Nemotron-3-Nano (30B MoE)"
+    hf_model_id: "nvidia/Nemotron-3-Nano-30B"
+    dtype: "bfloat16"
+    supports_bbox: false
+    prompt_template: "extraction_llm"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096
+
+  L-03:
+    name: "Qwen2.5-VL-72B (Q4)"
+    hf_model_id: "Qwen/Qwen2.5-VL-72B-Instruct"
+    dtype: "bfloat16"
+    supports_bbox: true
+    prompt_template: "qwen_vl"
+    output_format: "markdown"
+    vllm_args: ["--dtype", "bfloat16", "--quantization", "awq"]
+    generation_params:
+      temperature: 0.0
+      seed: 42
+      max_tokens: 4096

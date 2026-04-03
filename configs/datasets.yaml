@@ -1,0 +1,48 @@
+datasets:
+  D-01:
+    name: "OmniDocBench"
+    loader: "omnidocbench"
+    path: "data/omnidocbench/"
+    has_ground_truth: true
+    has_unit_tests: false
+    priority: "HIGH"
+
+  D-02:
+    name: "FinTabNet"
+    loader: "fintabnet"
+    path: "data/fintabnet/"
+    has_ground_truth: true
+    has_unit_tests: false
+    priority: "HIGH"
+
+  D-03:
+    name: "FUNSD"
+    loader: "funsd"
+    path: "data/funsd/"
+    has_ground_truth: true
+    has_unit_tests: false
+    priority: "MEDIUM"
+
+  D-04:
+    name: "DocVQA"
+    loader: "docvqa"
+    path: "data/docvqa/"
+    has_ground_truth: true
+    has_unit_tests: false
+    priority: "MEDIUM"
+
+  D-05:
+    name: "OlmOCR-Bench"
+    loader: "olmocr_bench"
+    path: "data/olmocr_bench/"
+    has_ground_truth: true
+    has_unit_tests: true
+    priority: "HIGH"
+
+  D-06:
+    name: "DocLayNet"
+    loader: "doclaynet"
+    path: "data/doclaynet/"
+    has_ground_truth: true
+    has_unit_tests: false
+    priority: "HIGH"

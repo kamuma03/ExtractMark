@@ -1,0 +1,122 @@
+libraries:
+  # Tier 1 -- Rule-Based / Heuristic (CPU, deterministic)
+  LIB-01:
+    name: "PyMuPDF / pymupdf4llm"
+    tier: 1
+    formats: ["pdf"]
+    gpu_required: false
+    pip_packages: ["pymupdf", "pymupdf4llm"]
+
+  LIB-02:
+    name: "pdfplumber"
+    tier: 1
+    formats: ["pdf"]
+    gpu_required: false
+    pip_packages: ["pdfplumber"]
+
+  LIB-03:
+    name: "pypdfium2"
+    tier: 1
+    formats: ["pdf"]
+    gpu_required: false
+    pip_packages: ["pypdfium2"]
+
+  LIB-04:
+    name: "Camelot"
+    tier: 1
+    formats: ["pdf"]
+    gpu_required: false
+    pip_packages: ["camelot-py", "opencv-python"]
+
+  LIB-05:
+    name: "Tabula-py"
+    tier: 1
+    formats: ["pdf"]
+    gpu_required: false
+    pip_packages: ["tabula-py"]
+
+  LIB-06:
+    name: "python-docx"
+    tier: 1
+    formats: ["docx"]
+    gpu_required: false
+    pip_packages: ["python-docx"]
+
+  LIB-07:
+    name: "python-pptx"
+    tier: 1
+    formats: ["pptx"]
+    gpu_required: false
+    pip_packages: ["python-pptx"]
+
+  # Tier 2 -- AI-Augmented Pipeline Libraries
+  LIB-08:
+    name: "Docling"
+    tier: 2
+    formats: ["pdf", "docx", "pptx", "html"]
+    gpu_required: false
+    pip_packages: ["docling"]
+
+  LIB-09:
+    name: "MinerU"
+    tier: 2
+    formats: ["pdf"]
+    gpu_required: false
+    pip_packages: ["mineru"]
+
+  LIB-10:
+    name: "marker"
+    tier: 2
+    formats: ["pdf", "docx", "pptx", "images"]
+    gpu_required: false
+    pip_packages: ["marker-pdf"]
+
+  LIB-11:
+    name: "Surya"
+    tier: 2
+    formats: ["images", "pdf"]
+    gpu_required: false
+    pip_packages: ["surya-ocr"]
+
+  LIB-12:
+    name: "Unstructured"
+    tier: 2
+    formats: ["pdf", "docx", "pptx", "html", "images"]
+    gpu_required: false
+    pip_packages: ["unstructured[all-docs]"]
+
+  LIB-13:
+    name: "MarkItDown"
+    tier: 2
+    formats: ["pdf", "docx", "pptx", "xlsx", "html"]
+    gpu_required: false
+    pip_packages: ["markitdown"]
+
+  # Tier 3 -- Specialised / Supplementary
+  LIB-14:
+    name: "Tesseract"
+    tier: 3
+    formats: ["images", "pdf"]
+    gpu_required: false
+    pip_packages: ["pytesseract"]
+
+  LIB-15:
+    name: "Table Transformer (TATR)"
+    tier: 3
+    formats: ["images"]
+    gpu_required: false
+    pip_packages: ["transformers", "timm"]
+
+  LIB-16:
+    name: "Nougat"
+    tier: 3
+    formats: ["pdf"]
+    gpu_required: true
+    pip_packages: ["nougat-ocr"]
+
+  LIB-17:
+    name: "pdfminer.six"
+    tier: 3
+    formats: ["pdf"]
+    gpu_required: false
+    pip_packages: ["pdfminer.six"]

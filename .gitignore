@@ -1,0 +1,42 @@
+# Results and reports (generated)
+results/
+report/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Data (downloaded datasets)
+data/
+
+# Models and checkpoints
+*.pth
+*.pt
+*.onnx
+*.bin
+*.safetensors
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# uv
+uv.lock
