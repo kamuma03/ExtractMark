@@ -101,6 +101,47 @@ class VLLMModelAdapter:
         self.base_url = f"http://localhost:{config.port}/v1"
         self._client = openai.OpenAI(base_url=self.base_url, api_key="not-needed")
         self._template_fn = get_template(config.prompt_template)
+        self._served_model_name: str | None = None
+
+    def _get_served_model_name(self) -> str:
+        """Query the vLLM server for the actual served model name.
+
+        vLLM may register the model under a name different from the HF model ID
+        (e.g. a local path, or a --served-model-name override). We query
+        ``GET /v1/models`` once and cache the result so subsequent calls are free.
+        Falls back to ``self.config.hf_model_id`` if the query fails.
+        """
+        if self._served_model_name is not None:
+            return self._served_model_name
+
+        try:
+            models_resp = self._client.models.list()
+            available = [m.id for m in models_resp.data]
+            if not available:
+                logger.warning(
+                    "%s: /v1/models returned no models, falling back to hf_model_id",
+                    self.model_id,
+                )
+                self._served_model_name = self.config.hf_model_id
+            elif self.config.hf_model_id in available:
+                # Exact match -- use it directly.
+                self._served_model_name = self.config.hf_model_id
+            else:
+                # Use the first (usually only) served model.
+                self._served_model_name = available[0]
+                logger.info(
+                    "%s: hf_model_id '%s' not in served models %s, using '%s'",
+                    self.model_id, self.config.hf_model_id, available,
+                    self._served_model_name,
+                )
+        except Exception as e:
+            logger.warning(
+                "%s: failed to query /v1/models (%s), falling back to hf_model_id",
+                self.model_id, e,
+            )
+            self._served_model_name = self.config.hf_model_id
+
+        return self._served_model_name
 
     def process_page(self, page: PageInput) -> PageOutput:
         """Process a single page image via vLLM chat completions."""
@@ -115,10 +156,11 @@ class VLLMModelAdapter:
         if self.config.generation_params.top_k is not None:
             gen_params["extra_body"] = {"top_k": self.config.generation_params.top_k}
 
+        served_name = self._get_served_model_name()
         start = time.perf_counter()
         try:
             response = self._client.chat.completions.create(
-                model=self.config.hf_model_id,
+                model=served_name,
                 messages=messages,
                 **gen_params,
             )

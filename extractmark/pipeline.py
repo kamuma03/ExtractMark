@@ -17,6 +17,7 @@ from rich.table import Table
 from extractmark.config import ExtractMarkConfig
 from extractmark.datasets.registry import get_dataset
 from extractmark.evaluators.registry import get_evaluator
+from extractmark.libraries.registry import get_library
 from extractmark.logging_setup import setup_logging, get_log_file_path
 from extractmark.models.registry import get_model
 from extractmark.normalize import normalize
@@ -42,9 +43,9 @@ class BenchmarkPipeline:
 
         # Set up per-run logging
         self._log_path = setup_logging(config.run.name)
-        logger.info("Config: models=%s, datasets=%s, evaluators=%s, max_pages=%s",
-                     config.run.models, config.run.datasets, config.run.evaluators,
-                     config.run.max_pages)
+        logger.info("Config: models=%s, libraries=%s, datasets=%s, evaluators=%s, max_pages=%s",
+                     config.run.models, config.run.libraries, config.run.datasets,
+                     config.run.evaluators, config.run.max_pages)
 
     def run(self) -> None:
         """Execute the benchmark pipeline."""
@@ -53,16 +54,28 @@ class BenchmarkPipeline:
 
         # Resolve components
         model_adapters = self._resolve_models()
+        library_adapters = self._resolve_libraries()
         datasets = self._resolve_datasets()
         evaluators = self._resolve_evaluators()
 
-        self._total_combos = len(model_adapters) * len(datasets)
+        # Merge model and library adapters into a single dict for iteration
+        all_adapters: dict = {}
+        all_adapters.update(model_adapters)
+        all_adapters.update(library_adapters)
+
+        self._total_combos = len(all_adapters) * len(datasets)
+
+        adapter_labels = []
+        if model_adapters:
+            adapter_labels.append(f"Models: {', '.join(model_adapters.keys())}")
+        if library_adapters:
+            adapter_labels.append(f"Libraries: {', '.join(library_adapters.keys())}")
 
         console.print()
         console.print(Panel(
             f"[bold cyan]ExtractMark Benchmark[/bold cyan]\n"
             f"Run: [green]{self.config.run.name}[/green]\n"
-            f"Models: {', '.join(model_adapters.keys())}\n"
+            + "\n".join(adapter_labels) + "\n"
             f"Datasets: {', '.join(datasets.keys())}\n"
             f"Evaluators: {self.config.run.evaluators}\n"
             f"Total combinations: {self._total_combos}\n"
@@ -73,8 +86,8 @@ class BenchmarkPipeline:
         console.print()
         logger.info("Starting %d benchmark combinations", self._total_combos)
 
-        # Run each (model, dataset) combination
-        for adapter_id, adapter in model_adapters.items():
+        # Run each (adapter, dataset) combination
+        for adapter_id, adapter in all_adapters.items():
             for dataset_id, dataset in datasets.items():
                 combo_label = f"{adapter_id} x {dataset_id}"
 
@@ -126,6 +139,23 @@ class BenchmarkPipeline:
                 continue
             logger.info("Resolved model %s: %s", model_id, model_config.hf_model_id)
             adapters[model_id] = get_model(model_id, model_config)
+        return adapters
+
+    def _resolve_libraries(self) -> dict:
+        adapters = {}
+        for lib_id in self.config.run.libraries:
+            lib_config = self.config.libraries.get(lib_id)
+            if lib_config is None:
+                logger.warning("Library %s not found in config, skipping", lib_id)
+                console.print(f"[yellow]Warning: library {lib_id} not in config, skipping[/yellow]")
+                continue
+            try:
+                adapter = get_library(lib_id, lib_config)
+                logger.info("Resolved library %s: %s", lib_id, lib_config.name)
+                adapters[lib_id] = adapter
+            except ValueError as e:
+                logger.warning("Library %s: %s", lib_id, e)
+                console.print(f"[yellow]Warning: {e}[/yellow]")
         return adapters
 
     def _resolve_datasets(self) -> dict:

@@ -240,15 +240,18 @@ def run_benchmark(args: argparse.Namespace) -> None:
         pipeline.run()
         return
 
-    # Managed mode: start/stop vLLM per model
+    # Managed mode: start/stop vLLM per model, then run libraries (no server needed)
     server = VLLMServerManager(use_docker=args.docker, port=args.port)
     total_models = len(cfg.run.models)
+    total_libraries = len(cfg.run.libraries)
+    total_steps = total_models + (1 if total_libraries else 0)
     benchmark_start = time.time()
 
     console.print(Panel(
         f"[bold]ExtractMark Managed Benchmark[/bold]\n"
         f"Config: {config_path}\n"
         f"Models: {cfg.run.models}\n"
+        f"Libraries: {cfg.run.libraries}\n"
         f"Datasets: {cfg.run.datasets}\n"
         f"Evaluators: {cfg.run.evaluators}\n"
         f"Serving: {'Docker' if args.docker else 'Native vLLM'}\n"
@@ -256,11 +259,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
         title="[cyan]ExtractMark[/cyan]",
     ))
 
+    step = 0
     try:
+        # Phase 1: Run vLLM-based models (one at a time, with server lifecycle)
         for i, model_id in enumerate(cfg.run.models):
+            step += 1
             console.print()
             console.rule(
-                f"[bold cyan]Model {i+1}/{total_models}: {model_id}[/bold cyan]"
+                f"[bold cyan]Model {i+1}/{total_models}: {model_id}[/bold cyan] "
+                f"(step {step}/{total_steps})"
             )
 
             model_config = cfg.models.get(model_id)
@@ -273,9 +280,10 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 console.print(f"  [red]Failed to start server for {model_id}, skipping[/red]")
                 continue
 
-            # Run pipeline for this model only
+            # Run pipeline for this model only (no libraries in this pass)
             single_cfg = cfg.model_copy(deep=True)
             single_cfg.run.models = [model_id]
+            single_cfg.run.libraries = []
 
             pipeline = BenchmarkPipeline(single_cfg)
             pipeline.run()
@@ -285,10 +293,30 @@ def run_benchmark(args: argparse.Namespace) -> None:
             server.stop()
             time.sleep(3)  # Brief pause for GPU memory cleanup
 
+        # Phase 2: Run library adapters (no vLLM server needed)
+        if cfg.run.libraries:
+            step += 1
+            console.print()
+            console.rule(
+                f"[bold magenta]Libraries: {', '.join(cfg.run.libraries)}[/bold magenta] "
+                f"(step {step}/{total_steps})"
+            )
+
+            lib_cfg = cfg.model_copy(deep=True)
+            lib_cfg.run.models = []  # No vLLM models in this pass
+
+            pipeline = BenchmarkPipeline(lib_cfg)
+            pipeline.run()
+
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user. Cleaning up...[/yellow]")
     finally:
         server.stop()
+
+    # Generate final consolidated report across all runs
+    from extractmark.reporting.summary import SummaryReporter
+    reporter = SummaryReporter(Path("results"), Path("report"))
+    reporter.generate()
 
     total_elapsed = time.time() - benchmark_start
     console.print()
