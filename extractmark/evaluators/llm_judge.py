@@ -58,11 +58,36 @@ class LLMJudgeEvaluator:
         seed: int = 42,
         prompt_path: Path | None = None,
     ):
-        self.judge_model = judge_model
+        self._configured_judge_model = judge_model
         self.temperature = temperature
         self.seed = seed
         self._client = openai.OpenAI(base_url=base_url, api_key="not-needed")
         self._prompt_template = self._load_prompt(prompt_path)
+        self._served_model_name: str | None = None
+
+    @property
+    def judge_model(self) -> str:
+        """Resolve the actual served model name from the vLLM server."""
+        if self._served_model_name is not None:
+            return self._served_model_name
+
+        try:
+            models_resp = self._client.models.list()
+            available = [m.id for m in models_resp.data]
+            if not available:
+                self._served_model_name = self._configured_judge_model
+            elif self._configured_judge_model in available:
+                self._served_model_name = self._configured_judge_model
+            else:
+                self._served_model_name = available[0]
+                logger.info(
+                    "LLM judge: configured model '%s' not in served models %s, using '%s'",
+                    self._configured_judge_model, available, self._served_model_name,
+                )
+        except Exception:
+            self._served_model_name = self._configured_judge_model
+
+        return self._served_model_name
 
     def _load_prompt(self, prompt_path: Path | None) -> str:
         path = prompt_path or _DEFAULT_PROMPT_PATH
