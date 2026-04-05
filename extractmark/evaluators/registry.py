@@ -26,6 +26,7 @@ def get_evaluator(
         return UnitTestEvaluator()
     elif evaluator_id == "L4":
         return LLMJudgeEvaluator(
+            judge_model=eval_config.judge_model,
             temperature=eval_config.judge_temperature,
             seed=eval_config.judge_seed,
         )

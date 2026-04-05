@@ -12,11 +12,21 @@ _model_cache = {}
 
 
 def _get_sbert_model(model_name: str = "all-MiniLM-L12-v2"):
-    """Lazy-load SBERT model (cached after first call)."""
+    """Lazy-load SBERT model on CPU (cached after first call).
+
+    Forced to CPU to avoid competing with vLLM for GPU memory on UMA systems.
+    """
     if model_name not in _model_cache:
         from sentence_transformers import SentenceTransformer
-        _model_cache[model_name] = SentenceTransformer(model_name)
+        _model_cache[model_name] = SentenceTransformer(model_name, device="cpu")
     return _model_cache[model_name]
+
+
+def unload_sbert_models() -> None:
+    """Unload all cached SBERT models to free memory."""
+    _model_cache.clear()
+    import gc
+    gc.collect()
 
 
 class SemanticSimilarityEvaluator:

@@ -27,6 +27,7 @@ class ModelConfig(BaseModel):
     vllm_args: list[str] = []
     generation_params: GenerationParams = GenerationParams()
     port: int = 8000
+    model_size_gb: float | None = None  # Estimated weight size for memory management
 
 
 class LibraryConfig(BaseModel):

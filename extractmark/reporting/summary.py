@@ -6,6 +6,7 @@ import csv
 import json
 import logging
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 from extractmark.types import EvalResult, RunResult
@@ -24,12 +25,34 @@ class SummaryReporter:
     def add_run(self, run_result: RunResult) -> None:
         self._runs.append(run_result)
 
+    @staticmethod
+    def _backup_if_exists(path: Path) -> None:
+        """Rename an existing file with a timestamp suffix to avoid overwriting."""
+        if not path.exists():
+            return
+        mtime = datetime.fromtimestamp(path.stat().st_mtime)
+        stamp = mtime.strftime("%Y%m%d_%H%M%S")
+        stem = path.stem
+        suffix = path.suffix
+        backup = path.with_name(f"{stem}_{stamp}{suffix}")
+        # Avoid collision if backup already exists
+        counter = 1
+        while backup.exists():
+            backup = path.with_name(f"{stem}_{stamp}_{counter}{suffix}")
+            counter += 1
+        path.rename(backup)
+        logger.info("Backed up previous report to %s", backup.name)
+
     def generate(self) -> None:
         """Generate Markdown and CSV reports."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         if not self._runs:
             self._runs = self._load_results_from_disk()
+
+        # Back up existing reports before overwriting
+        self._backup_if_exists(self.output_dir / "benchmark_summary.md")
+        self._backup_if_exists(self.output_dir / "benchmark_summary.csv")
 
         self._generate_markdown()
         self._generate_csv()

@@ -20,52 +20,72 @@ from rich.console import Console
 LOGS_DIR = Path("logs")
 
 _log_file_path: Path | None = None
+_logging_initialized: bool = False
 
 
 def setup_logging(run_name: str, level: int = logging.INFO) -> Path:
     """Configure logging for a benchmark run.
 
+    On the first call, creates a new log file and configures handlers.
+    Subsequent calls reuse the same file (appending a section header),
+    so the entire benchmark produces a single log file.
+
     Returns the path to the log file.
     """
-    global _log_file_path
+    global _log_file_path, _logging_initialized
 
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"{run_name}_{timestamp}.log"
-    _log_file_path = LOGS_DIR / log_filename
+    if not _logging_initialized:
+        # First call: create the log file and set up handlers
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"{run_name}_{timestamp}.log"
+        _log_file_path = LOGS_DIR / log_filename
 
-    # Clear any existing handlers on root logger
-    root = logging.getLogger()
-    root.handlers.clear()
-    root.setLevel(level)
+        root = logging.getLogger()
+        root.handlers.clear()
+        root.setLevel(level)
 
-    # File handler -- captures everything
-    file_handler = logging.FileHandler(_log_file_path, mode="w")
-    file_handler.setLevel(level)
-    file_formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(file_formatter)
-    root.addHandler(file_handler)
+        # File handler -- captures everything
+        file_handler = logging.FileHandler(_log_file_path, mode="w")
+        file_handler.setLevel(level)
+        file_formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        file_handler.setFormatter(file_formatter)
+        root.addHandler(file_handler)
 
-    # Console handler -- only warnings and above (Rich handles the pretty output)
-    console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(logging.WARNING)
-    console_handler.setFormatter(file_formatter)
-    root.addHandler(console_handler)
+        # Console handler -- only warnings and above (Rich handles the pretty output)
+        console_handler = logging.StreamHandler(sys.stderr)
+        console_handler.setLevel(logging.WARNING)
+        console_handler.setFormatter(file_formatter)
+        root.addHandler(console_handler)
 
-    # Write header
-    logger = logging.getLogger("extractmark")
-    logger.info("=" * 60)
-    logger.info("ExtractMark Benchmark Run")
-    logger.info("Run name: %s", run_name)
-    logger.info("Log file: %s", _log_file_path)
-    logger.info("Started:  %s", datetime.now().isoformat())
-    logger.info("=" * 60)
+        _logging_initialized = True
+
+    # Write section header (first call = run header, subsequent calls = sub-run header)
+    lgr = logging.getLogger("extractmark")
+    lgr.info("=" * 60)
+    lgr.info("ExtractMark Benchmark Run")
+    lgr.info("Run name: %s", run_name)
+    lgr.info("Log file: %s", _log_file_path)
+    lgr.info("Started:  %s", datetime.now().isoformat())
+    lgr.info("=" * 60)
 
     return _log_file_path
+
+
+def reset_logging() -> None:
+    """Reset logging state so the next setup_logging() creates a fresh file.
+
+    Call this between independent benchmark invocations (e.g. in tests).
+    """
+    global _log_file_path, _logging_initialized
+    _log_file_path = None
+    _logging_initialized = False
+    root = logging.getLogger()
+    root.handlers.clear()
 
 
 def get_log_file_path() -> Path | None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -40,6 +41,8 @@ class BenchmarkPipeline:
         self._completed_combos: int = 0
         self._total_combos: int = 0
         self._status_log: list[str] = []
+        self._deferred_evaluators: list = []
+        self._deferred_pages: list[tuple[PageOutput, str, str, str]] = []
 
         # Set up per-run logging
         self._log_path = setup_logging(config.run.name)
@@ -56,7 +59,16 @@ class BenchmarkPipeline:
         model_adapters = self._resolve_models()
         library_adapters = self._resolve_libraries()
         datasets = self._resolve_datasets()
-        evaluators = self._resolve_evaluators()
+        all_evaluators = self._resolve_evaluators()
+
+        # Split evaluators: run L4 (LLM judge) deferred since it needs its own vLLM server
+        evaluators = [e for e in all_evaluators if e.metric_id != "L4"]
+        self._deferred_evaluators = [e for e in all_evaluators if e.metric_id == "L4"]
+        if self._deferred_evaluators:
+            logger.info("Deferred evaluators (will run after extraction): %s",
+                        [e.metric_id for e in self._deferred_evaluators])
+            # Track (page_output, ground_truth, adapter_id, dataset_id) for deferred eval
+            self._deferred_pages: list[tuple[PageOutput, str, str, str]] = []
 
         # Merge model and library adapters into a single dict for iteration
         all_adapters: dict = {}
@@ -121,6 +133,13 @@ class BenchmarkPipeline:
                 if self._run_results:
                     self._print_combo_summary(self._run_results[-1])
 
+        # Free evaluator resources (SBERT models, etc.) before report generation
+        try:
+            from extractmark.evaluators.semantic_similarity import unload_sbert_models
+            unload_sbert_models()
+        except ImportError:
+            pass
+
         # Generate reports
         console.print()
         console.rule("[bold green]Generating Reports[/bold green]")
@@ -182,6 +201,111 @@ class BenchmarkPipeline:
                 console.print(f"[yellow]Warning: {e}[/yellow]")
         return evals
 
+    def has_deferred_evaluations(self) -> bool:
+        """Return True if there are deferred evaluations pending (e.g. L4)."""
+        return bool(getattr(self, "_deferred_pages", None))
+
+    def run_deferred_evaluations(self) -> None:
+        """Run deferred evaluators (L4) over previously collected page outputs.
+
+        Call this after the judge model's vLLM server is running.
+        """
+        if not self.has_deferred_evaluations():
+            return
+
+        deferred_pages = self._deferred_pages
+        deferred_evaluators = self._deferred_evaluators
+
+        console.print()
+        console.rule("[bold cyan]Deferred Evaluation: LLM Judge (L4)[/bold cyan]")
+        logger.info("Running deferred L4 evaluation on %d pages", len(deferred_pages))
+
+        # Group by (adapter_id, dataset_id) so we can append results to the right RunResult
+        from collections import defaultdict
+        combo_results: dict[tuple[str, str], list[EvalResult]] = defaultdict(list)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=30),
+            MofNCompleteColumn(),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            console=console,
+            transient=False,
+        ) as progress:
+            task = progress.add_task("  LLM Judge (L4)", total=len(deferred_pages))
+
+            for output, gt, adapter_id, dataset_id in deferred_pages:
+                page_label = f"{output.document_id}/page_{output.page_number}"
+                for evaluator in deferred_evaluators:
+                    try:
+                        eval_results = evaluator.evaluate(output, gt)
+                        combo_results[(adapter_id, dataset_id)].extend(eval_results)
+                        for er in eval_results:
+                            logger.debug(
+                                "Deferred eval %s on %s: %s = %.4f",
+                                evaluator.metric_id, page_label, er.metric_name, er.score,
+                            )
+                    except Exception as e:
+                        logger.error("Deferred evaluator %s failed on %s: %s",
+                                     evaluator.metric_id, page_label, e)
+                progress.advance(task)
+
+        # Merge deferred results into existing RunResults and save
+        for run_result in self._run_results:
+            key = (run_result.adapter_id, run_result.dataset_id)
+            if key in combo_results:
+                run_result.eval_results.extend(combo_results[key])
+
+                # Re-save eval_results.json with L4 scores included
+                out_dir = self.results_dir / run_result.adapter_id / run_result.dataset_id
+                eval_path = out_dir / "eval_results.json"
+                with open(eval_path, "w") as f:
+                    json.dump([r.to_dict() for r in run_result.eval_results], f, indent=2)
+
+                logger.info("Merged %d L4 results into %s",
+                            len(combo_results[key]), key)
+
+        self._deferred_pages.clear()
+        console.print("  [green]Deferred L4 evaluation complete.[/green]")
+
+    @staticmethod
+    def _process_with_document_adapter(adapter, page: PageInput) -> PageOutput:
+        """Convert a page image to a temp PDF and call the adapter's process_document()."""
+        from PIL import Image
+
+        start = time.perf_counter()
+        img = Image.open(page.image_path)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            img.save(f, "PDF", resolution=150)
+            pdf_path = Path(f.name)
+
+        try:
+            outputs = adapter.process_document(pdf_path)
+        finally:
+            pdf_path.unlink(missing_ok=True)
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        if outputs:
+            result = outputs[0]
+            result.document_id = page.document_id
+            result.page_number = page.page_number
+            result.inference_time_ms = elapsed_ms
+            return result
+
+        return PageOutput(
+            document_id=page.document_id,
+            page_number=page.page_number,
+            raw_text="",
+            inference_time_ms=elapsed_ms,
+            metadata={"error": "library_extraction_empty"},
+        )
+
     def _run_single(self, adapter_id, adapter, dataset_id, dataset, evaluators) -> RunResult:
         """Run a single (adapter, dataset) combination with live progress."""
         warmup = self.config.run.warmup_pages
@@ -192,6 +316,9 @@ class BenchmarkPipeline:
         timing_pages: list[float] = []
         cold_start_times: list[float] = []
         page_errors: list[dict] = []
+
+        # Detect library adapters that need document-level processing
+        use_document_adapter = hasattr(adapter, "process_document")
 
         # Create output directory
         out_dir = self.results_dir / adapter_id / dataset_id
@@ -226,7 +353,10 @@ class BenchmarkPipeline:
 
                 # Process page
                 try:
-                    output = adapter.process_page(page)
+                    if use_document_adapter:
+                        output = self._process_with_document_adapter(adapter, page)
+                    else:
+                        output = adapter.process_page(page)
                     output.normalized_text = normalize(output.raw_text)
                     logger.debug(
                         "Page %s: %dms, %d chars raw, %d chars normalized",
@@ -265,7 +395,7 @@ class BenchmarkPipeline:
                 else:
                     timing_pages.append(output.inference_time_ms)
 
-                # Evaluate
+                # Evaluate (immediate evaluators only; L4 is deferred)
                 gt = page.ground_truth
                 if gt:
                     for evaluator in evaluators:
@@ -280,6 +410,9 @@ class BenchmarkPipeline:
                         except Exception as e:
                             logger.error("Evaluator %s failed on %s: %s",
                                          evaluator.metric_id, page_label, e)
+                    # Collect for deferred evaluation
+                    if self._deferred_evaluators:
+                        self._deferred_pages.append((output, gt, adapter_id, dataset_id))
 
                 page_outputs.append(output)
                 page_count += 1

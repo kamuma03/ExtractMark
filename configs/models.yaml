@@ -6,6 +6,7 @@ models:
     supports_bbox: true
     prompt_template: "nemotron_parse"
     output_format: "markdown"
+    model_size_gb: 16
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -19,6 +20,7 @@ models:
     supports_bbox: true
     prompt_template: "generic_ocr"
     output_format: "markdown"
+    model_size_gb: 2
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.2
@@ -33,6 +35,7 @@ models:
     supports_bbox: false
     prompt_template: "got_ocr"
     output_format: "markdown"
+    model_size_gb: 1
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -46,6 +49,7 @@ models:
     supports_bbox: false
     prompt_template: "olmocr"
     output_format: "markdown"
+    model_size_gb: 14
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -59,6 +63,7 @@ models:
     supports_bbox: true
     prompt_template: "glm_ocr"
     output_format: "markdown"
+    model_size_gb: 4
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -72,6 +77,7 @@ models:
     supports_bbox: true
     prompt_template: "qwen_vl"
     output_format: "markdown"
+    model_size_gb: 16
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -85,6 +91,7 @@ models:
     supports_bbox: true
     prompt_template: "qwen_vl"
     output_format: "markdown"
+    model_size_gb: 6
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -98,6 +105,7 @@ models:
     supports_bbox: true
     prompt_template: "internvl"
     output_format: "markdown"
+    model_size_gb: 8
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -111,6 +119,7 @@ models:
     supports_bbox: false
     prompt_template: "generic_ocr"
     output_format: "markdown"
+    model_size_gb: 6
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -124,6 +133,7 @@ models:
     supports_bbox: true
     prompt_template: "deepseek_ocr"
     output_format: "markdown"
+    model_size_gb: 2
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -137,6 +147,7 @@ models:
     supports_bbox: true
     prompt_template: "chandra"
     output_format: "markdown"
+    model_size_gb: 6
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -150,6 +161,7 @@ models:
     supports_bbox: true
     prompt_template: "generic_ocr"
     output_format: "markdown"
+    model_size_gb: 6
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -164,6 +176,7 @@ models:
     supports_bbox: false
     prompt_template: "extraction_llm"
     output_format: "markdown"
+    model_size_gb: 14
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -177,6 +190,7 @@ models:
     supports_bbox: false
     prompt_template: "extraction_llm"
     output_format: "markdown"
+    model_size_gb: 60
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
@@ -190,6 +204,7 @@ models:
     supports_bbox: true
     prompt_template: "qwen_vl"
     output_format: "markdown"
+    model_size_gb: 42
     vllm_args: ["--dtype", "bfloat16", "--quantization", "awq"]
     generation_params:
       temperature: 0.0

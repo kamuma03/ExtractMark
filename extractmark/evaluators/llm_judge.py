@@ -95,6 +95,67 @@ class LLMJudgeEvaluator:
             return path.read_text()
         return _FALLBACK_PROMPT
 
+    def _call_judge(self, prompt: str, doc_id: str, page_num: int) -> str:
+        """Send prompt to the judge LLM, retrying once on empty response."""
+        messages = [
+            {"role": "system", "content": "You are an expert document extraction evaluator. Always respond with valid JSON only."},
+            {"role": "user", "content": prompt},
+        ]
+
+        # Use slightly above zero to avoid degenerate empty outputs from some models
+        temp = max(self.temperature, 0.01)
+
+        for attempt in range(3):
+            kwargs = dict(
+                model=self.judge_model,
+                messages=list(messages),
+                temperature=temp if attempt == 0 else 0.3,
+                max_tokens=512,
+            )
+            if attempt == 0:
+                kwargs["seed"] = self.seed
+
+            # Try JSON mode (supported by vLLM >= 0.4); fall back gracefully
+            if attempt == 0:
+                try:
+                    kwargs["response_format"] = {"type": "json_object"}
+                    response = self._client.chat.completions.create(**kwargs)
+                except Exception:
+                    kwargs.pop("response_format", None)
+                    response = self._client.chat.completions.create(**kwargs)
+            else:
+                response = self._client.chat.completions.create(**kwargs)
+
+            choice = response.choices[0]
+            raw_response = choice.message.content or ""
+
+            logger.debug(
+                "LLM judge response for %s page %d (attempt %d): "
+                "finish_reason=%s, content_length=%d, usage=%s",
+                doc_id, page_num, attempt + 1,
+                choice.finish_reason, len(raw_response),
+                getattr(response, "usage", None),
+            )
+
+            if raw_response.strip():
+                return raw_response
+
+            logger.warning(
+                "LLM judge returned empty content for %s page %d "
+                "(attempt %d, finish_reason=%s, prompt_length=%d chars)",
+                doc_id, page_num, attempt + 1,
+                choice.finish_reason, len(prompt),
+            )
+
+            # On retry, add an explicit nudge as a follow-up message
+            if attempt == 0:
+                messages.append({
+                    "role": "user",
+                    "content": "Please provide your evaluation now as a JSON object with keys: text_completeness, table_fidelity, reading_order, figure_caption, overall, reasoning.",
+                })
+
+        return raw_response
+
     def evaluate(self, output: PageOutput, ground_truth: str) -> list[EvalResult]:
         text = output.normalized_text or output.raw_text
         if not text or not ground_truth:
@@ -112,14 +173,7 @@ class LLMJudgeEvaluator:
         )
 
         try:
-            response = self._client.chat.completions.create(
-                model=self.judge_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.temperature,
-                seed=self.seed,
-                max_tokens=512,
-            )
-            raw_response = response.choices[0].message.content or ""
+            raw_response = self._call_judge(prompt, output.document_id, output.page_number)
             scores = self._parse_scores(raw_response)
         except Exception as e:
             logger.warning("LLM judge failed for %s page %d: %s",
@@ -160,16 +214,33 @@ class LLMJudgeEvaluator:
     @staticmethod
     def _parse_scores(response: str) -> dict:
         """Parse JSON scores from LLM response."""
-        # Try to extract JSON from response
+        import re
+
+        # Strip markdown code fences if present
+        cleaned = re.sub(r"```(?:json)?\s*", "", response).strip()
+        cleaned = re.sub(r"```\s*$", "", cleaned).strip()
+
+        # Try to extract JSON from cleaned response
         try:
-            # Look for JSON block in response
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
+            json_start = cleaned.find("{")
+            json_end = cleaned.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
-                return json.loads(response[json_start:json_end])
+                return json.loads(cleaned[json_start:json_end])
         except json.JSONDecodeError:
             pass
 
-        # Fallback: try to extract numeric score
-        logger.warning("Could not parse JSON from LLM judge response, returning default")
+        # Try extracting individual scores via regex as fallback
+        score_keys = ["text_completeness", "table_fidelity", "reading_order",
+                      "figure_caption", "overall"]
+        extracted = {}
+        for key in score_keys:
+            match = re.search(rf'"{key}"\s*:\s*(\d+(?:\.\d+)?)', response)
+            if match:
+                extracted[key] = float(match.group(1))
+        if extracted:
+            extracted.setdefault("overall", 0.0)
+            return extracted
+
+        logger.warning("Could not parse JSON from LLM judge response, returning default. "
+                       "Raw response (first 300 chars): %s", response[:300])
         return {"overall": 0.0, "parse_error": True, "raw_response": response[:200]}

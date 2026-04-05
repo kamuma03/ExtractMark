@@ -59,8 +59,72 @@ MODEL_EXTRA_DEPS = {
     "M-01": ["timm", "open_clip_torch", "albumentations"],
 }
 
-# vLLM GPU memory utilization (DGX Spark UMA needs headroom)
-GPU_MEM_UTIL = 0.85
+# DGX Spark total unified memory (GB) -- GPU and CPU share the same pool
+SYSTEM_MEMORY_GB = 128
+
+# Absolute cap on GPU memory fraction (safety margin for OS + libraries)
+MAX_GPU_MEM_UTIL = 0.80
+
+# Minimum GPU memory fraction (vLLM requires some minimum for KV cache)
+MIN_GPU_MEM_UTIL = 0.05
+
+
+def _compute_gpu_memory_utilization(config: ModelConfig) -> float:
+    """Compute right-sized --gpu-memory-utilization for a model.
+
+    On UMA systems like DGX Spark, --gpu-memory-utilization is a fraction of
+    *total system RAM* seen by the GPU driver (~128 GB).  Pre-allocating 85%
+    for a 1B model wastes 100+ GB.
+
+    Formula: (model_weights + KV_cache_headroom + overhead) / system_memory
+    """
+    if config.model_size_gb is None:
+        # Unknown size -- use a conservative default
+        return 0.40
+
+    # model weights + ~1.5x for KV cache + 2 GB fixed overhead
+    needed_gb = config.model_size_gb * 2.5 + 2
+    util = needed_gb / SYSTEM_MEMORY_GB
+
+    return max(MIN_GPU_MEM_UTIL, min(MAX_GPU_MEM_UTIL, round(util, 2)))
+
+
+def _reclaim_memory() -> None:
+    """Kill lingering vLLM workers, flush CUDA cache, and wait for UMA release."""
+    import gc
+
+    # vLLM EngineCore child processes may outlive the parent — reap them
+    try:
+        subprocess.run(
+            ["pkill", "-f", "VLLM::EngineCore"],
+            capture_output=True, timeout=5,
+        )
+    except Exception:
+        pass
+
+    # Wait briefly for processes to exit
+    time.sleep(2)
+
+    gc.collect()
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+    except ImportError:
+        pass
+
+    # On UMA systems, poll until memory is actually released (up to 15s)
+    try:
+        import psutil
+        for _ in range(6):
+            avail_gb = psutil.virtual_memory().available / (1024 ** 3)
+            if avail_gb > 20:  # Enough headroom for next model
+                break
+            time.sleep(2)
+    except ImportError:
+        time.sleep(3)  # Fallback: simple wait
 
 
 class VLLMServerManager:
@@ -83,17 +147,22 @@ class VLLMServerManager:
         return self._start_native(model_id, config, timeout)
 
     def _start_native(self, model_id: str, config: ModelConfig, timeout: int) -> bool:
+        gpu_mem_util = _compute_gpu_memory_utilization(config)
+        console.print(f"  GPU memory utilization: [cyan]{gpu_mem_util:.0%}[/cyan]"
+                       f" ({config.model_size_gb or '?'}GB model → "
+                       f"~{gpu_mem_util * SYSTEM_MEMORY_GB:.0f}GB reserved)")
+
         cmd = [
             sys.executable, "-m", "vllm.entrypoints.openai.api_server",
             "--model", config.hf_model_id,
             "--port", str(self.port),
-            "--gpu-memory-utilization", str(GPU_MEM_UTIL),
+            "--gpu-memory-utilization", str(gpu_mem_util),
         ]
         cmd.extend(config.vllm_args)
         if model_id in TRUST_REMOTE_CODE_MODELS:
             cmd.append("--trust-remote-code")
 
-        logger.info("Starting vLLM: %s", " ".join(cmd))
+        logger.info("Starting vLLM (gpu_mem_util=%.2f): %s", gpu_mem_util, " ".join(cmd))
 
         env = os.environ.copy()
         self._process = subprocess.Popen(
@@ -126,7 +195,8 @@ class VLLMServerManager:
         else:
             pip_cmd = ""
 
-        vllm_cmd = f"vllm serve {config.hf_model_id} --gpu-memory-utilization {GPU_MEM_UTIL}"
+        gpu_mem_util = _compute_gpu_memory_utilization(config)
+        vllm_cmd = f"vllm serve {config.hf_model_id} --gpu-memory-utilization {gpu_mem_util}"
         for arg in config.vllm_args:
             vllm_cmd += f" {arg}"
         if model_id in TRUST_REMOTE_CODE_MODELS:
@@ -192,7 +262,7 @@ class VLLMServerManager:
         return False
 
     def stop(self) -> None:
-        """Stop the running vLLM server."""
+        """Stop the running vLLM server and reclaim memory."""
         if self.use_docker:
             subprocess.run(
                 ["docker", "rm", "-f", self._container_name],
@@ -206,6 +276,9 @@ class VLLMServerManager:
                 self._process.kill()
                 self._process.wait()
             self._process = None
+
+        # Reclaim GPU/UMA memory after vLLM shuts down
+        _reclaim_memory()
 
     def health_check(self) -> bool:
         try:
@@ -247,6 +320,9 @@ def run_benchmark(args: argparse.Namespace) -> None:
     total_steps = total_models + (1 if total_libraries else 0)
     benchmark_start = time.time()
 
+    # Collect all pipelines so we can run deferred L4 evaluations after extraction
+    pipelines_with_deferred: list[BenchmarkPipeline] = []
+
     console.print(Panel(
         f"[bold]ExtractMark Managed Benchmark[/bold]\n"
         f"Config: {config_path}\n"
@@ -287,11 +363,12 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
             pipeline = BenchmarkPipeline(single_cfg)
             pipeline.run()
+            if pipeline.has_deferred_evaluations():
+                pipelines_with_deferred.append(pipeline)
 
-            # Stop server to free GPU memory
+            # Stop server to free GPU memory for the next model
             console.print(f"  Stopping server for {model_id}...")
             server.stop()
-            time.sleep(3)  # Brief pause for GPU memory cleanup
 
         # Phase 2: Run library adapters (no vLLM server needed)
         if cfg.run.libraries:
@@ -307,6 +384,26 @@ def run_benchmark(args: argparse.Namespace) -> None:
 
             pipeline = BenchmarkPipeline(lib_cfg)
             pipeline.run()
+            if pipeline.has_deferred_evaluations():
+                pipelines_with_deferred.append(pipeline)
+
+        # Phase 3: Deferred L4 evaluation -- serve judge model, then replay
+        if pipelines_with_deferred:
+            judge_model_id = cfg.evaluation.judge_model
+            judge_config = cfg.models.get(judge_model_id)
+            if judge_config:
+                console.print()
+                console.rule("[bold yellow]Phase 3: LLM Judge (L4) Evaluation[/bold yellow]")
+                console.print(f"  Serving judge model [cyan]{judge_model_id}[/cyan] ({judge_config.hf_model_id})...")
+
+                if server.start(judge_model_id, judge_config):
+                    for p in pipelines_with_deferred:
+                        p.run_deferred_evaluations()
+                    server.stop()
+                else:
+                    console.print("  [red]Failed to start judge server. L4 scores skipped.[/red]")
+            else:
+                console.print(f"  [yellow]Judge model '{judge_model_id}' not in config. L4 skipped.[/yellow]")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrupted by user. Cleaning up...[/yellow]")
