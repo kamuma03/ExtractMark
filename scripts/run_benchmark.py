@@ -52,7 +52,7 @@ console = Console()
 logger = logging.getLogger("extractmark.runner")
 
 # Models that need --trust-remote-code for vLLM
-TRUST_REMOTE_CODE_MODELS = {"M-01", "M-06", "M-09"}
+TRUST_REMOTE_CODE_MODELS = {"M-01", "M-03", "M-06", "M-09"}
 
 # Models that need extra pip dependencies inside the vLLM env
 MODEL_EXTRA_DEPS = {
@@ -65,8 +65,8 @@ SYSTEM_MEMORY_GB = 128
 # Absolute cap on GPU memory fraction (safety margin for OS + libraries)
 MAX_GPU_MEM_UTIL = 0.80
 
-# Minimum GPU memory fraction (vLLM requires some minimum for KV cache)
-MIN_GPU_MEM_UTIL = 0.05
+# Minimum GPU memory fraction (vLLM needs enough for model + KV cache + CUDA graphs)
+MIN_GPU_MEM_UTIL = 0.10
 
 
 def _compute_gpu_memory_utilization(config: ModelConfig) -> float:

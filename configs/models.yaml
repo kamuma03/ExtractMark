@@ -44,7 +44,7 @@ models:
 
   M-04:
     name: "OlmOCR-2"
-    hf_model_id: "allenai/olmocr2-7b"
+    hf_model_id: "allenai/olmOCR-2-7B-1025"
     dtype: "bfloat16"
     supports_bbox: false
     prompt_template: "olmocr"
