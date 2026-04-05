@@ -32,7 +32,14 @@ console = Console()
 class BenchmarkPipeline:
     """Central orchestrator for ExtractMark benchmark runs."""
 
-    def __init__(self, config: ExtractMarkConfig):
+    def __init__(self, config: ExtractMarkConfig, server_restart_fn=None):
+        """
+        Args:
+            config: Benchmark configuration.
+            server_restart_fn: Optional callback ``() -> bool`` that restarts
+                the vLLM server if it becomes unresponsive. The pipeline calls
+                this after a timeout error to recover automatically.
+        """
         self.config = config
         self.results_dir = Path("results")
         self.report_dir = Path("report")
@@ -43,6 +50,7 @@ class BenchmarkPipeline:
         self._status_log: list[str] = []
         self._deferred_evaluators: list = []
         self._deferred_pages: list[tuple[PageOutput, str, str, str]] = []
+        self._server_restart_fn = server_restart_fn
 
         # Set up per-run logging
         self._log_path = setup_logging(config.run.name)
@@ -365,7 +373,6 @@ class BenchmarkPipeline:
                     )
                 except Exception as e:
                     logger.error("Inference error on %s: %s", page_label, e)
-                    logger.error("Traceback:\n%s", traceback.format_exc())
                     page_errors.append({
                         "page": page_label,
                         "error": str(e),
@@ -377,6 +384,23 @@ class BenchmarkPipeline:
                         raw_text="",
                         metadata={"error": str(e)},
                     )
+
+                    # If the server is unresponsive after a timeout, restart it
+                    if self._server_restart_fn and ("timed out" in str(e).lower()
+                            or "connection error" in str(e).lower()):
+                        if hasattr(adapter, "health_check") and not adapter.health_check():
+                            logger.warning("Server unresponsive after error, restarting...")
+                            console.print("  [yellow]Server unresponsive — restarting...[/yellow]")
+                            if self._server_restart_fn():
+                                logger.info("Server restarted successfully")
+                                console.print("  [green]Server restarted[/green]")
+                                # Reset the cached model name in case it changed
+                                if hasattr(adapter, "_served_model_name"):
+                                    adapter._served_model_name = None
+                            else:
+                                logger.error("Server restart failed, skipping remaining pages")
+                                console.print("  [red]Server restart failed[/red]")
+                                break
 
                 # Save output
                 doc_dir = out_dir / page.document_id

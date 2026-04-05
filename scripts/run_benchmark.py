@@ -395,7 +395,12 @@ def run_benchmark(args: argparse.Namespace) -> None:
             single_cfg.run.models = [model_id]
             single_cfg.run.libraries = []
 
-            pipeline = BenchmarkPipeline(single_cfg)
+            # Provide a restart callback so the pipeline can recover from vLLM hangs
+            def _restart_server(mid=model_id, mcfg=model_config):
+                server.stop()
+                return server.start(mid, mcfg)
+
+            pipeline = BenchmarkPipeline(single_cfg, server_restart_fn=_restart_server)
             pipeline.run()
             if pipeline.has_deferred_evaluations():
                 pipelines_with_deferred.append(pipeline)
