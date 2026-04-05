@@ -411,9 +411,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
         server.stop()
 
     # Generate final consolidated report across all runs
-    from extractmark.reporting.summary import SummaryReporter
-    reporter = SummaryReporter(Path("results"), Path("report"))
-    reporter.generate()
+    try:
+        from extractmark.reporting.summary import SummaryReporter
+        reporter = SummaryReporter(Path("results"), Path("report"))
+        reporter.generate()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Report generation interrupted.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Report generation failed: {e}[/red]")
+        logger.error("Report generation failed: %s", e)
 
     total_elapsed = time.time() - benchmark_start
     console.print()

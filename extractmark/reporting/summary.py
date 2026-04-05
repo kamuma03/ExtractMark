@@ -74,16 +74,24 @@ class SummaryReporter:
                 eval_path = dataset_dir / "eval_results.json"
                 eval_results = []
                 if eval_path.exists():
-                    with open(eval_path) as f:
-                        for item in json.load(f):
-                            eval_results.append(EvalResult(**item))
+                    try:
+                        with open(eval_path) as f:
+                            for item in json.load(f):
+                                eval_results.append(EvalResult(**item))
+                    except (json.JSONDecodeError, KeyError, TypeError) as e:
+                        logger.warning("Skipping corrupt eval_results.json in %s: %s",
+                                       dataset_dir, e)
 
                 # Load metadata
                 meta_path = dataset_dir / "run_metadata.json"
                 metadata = {}
                 if meta_path.exists():
-                    with open(meta_path) as f:
-                        metadata = json.load(f)
+                    try:
+                        with open(meta_path) as f:
+                            metadata = json.load(f)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning("Skipping corrupt run_metadata.json in %s: %s",
+                                       dataset_dir, e)
 
                 runs.append(RunResult(
                     adapter_id=adapter_dir.name,
