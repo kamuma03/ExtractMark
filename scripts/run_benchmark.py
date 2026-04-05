@@ -136,9 +136,34 @@ class VLLMServerManager:
         self._process: subprocess.Popen | None = None
         self._container_name = "extractmark-vllm"
 
+    def _kill_existing_on_port(self) -> None:
+        """Kill any process already listening on the target port."""
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f"tcp:{self.port}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            pids = result.stdout.strip().split()
+            for pid in pids:
+                if pid.isdigit():
+                    logger.info("Killing existing process %s on port %d", pid, self.port)
+                    os.kill(int(pid), signal.SIGTERM)
+            if pids:
+                time.sleep(2)
+                # Force-kill any survivors
+                for pid in pids:
+                    if pid.isdigit():
+                        try:
+                            os.kill(int(pid), signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
     def start(self, model_id: str, config: ModelConfig, timeout: int = 300) -> bool:
         """Start vLLM server for a model. Returns True if successful."""
-        self.stop()  # Stop any existing server
+        self.stop()  # Stop any server we manage
+        self._kill_existing_on_port()  # Kill anything else on the port
 
         console.print(f"  Starting vLLM for [cyan]{model_id}[/cyan] ({config.hf_model_id})...")
 
@@ -212,7 +237,11 @@ class VLLMServerManager:
         return self._wait_ready(timeout)
 
     def _wait_ready(self, timeout: int) -> bool:
-        """Poll health endpoint until ready."""
+        """Poll health endpoint until the NEW server is ready.
+
+        Waits a minimum of 5s before accepting the first health check to avoid
+        false positives from a dying previous server on the same port.
+        """
         import openai
         client = openai.OpenAI(
             base_url=f"http://localhost:{self.port}/v1", api_key="not-needed"
@@ -220,12 +249,17 @@ class VLLMServerManager:
 
         start = time.time()
         last_dot = start
+        min_wait = 5  # Don't trust health checks before this (avoids stale server)
         sys.stdout.write("  Waiting for server")
         sys.stdout.flush()
 
         while time.time() - start < timeout:
             try:
                 client.models.list()
+                if time.time() - start < min_wait:
+                    # Too fast — likely a stale server; wait and re-check
+                    time.sleep(min_wait - (time.time() - start))
+                    client.models.list()  # Verify it's still alive
                 elapsed = int(time.time() - start)
                 console.print(f"\r  [green]Server ready[/green] ({elapsed}s)")
                 return True
