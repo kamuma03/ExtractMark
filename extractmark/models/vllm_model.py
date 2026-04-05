@@ -99,7 +99,10 @@ class VLLMModelAdapter:
         self.model_id = model_id
         self.config = config
         self.base_url = f"http://localhost:{config.port}/v1"
-        self._client = openai.OpenAI(base_url=self.base_url, api_key="not-needed")
+        self._client = openai.OpenAI(
+            base_url=self.base_url, api_key="not-needed",
+            timeout=120.0,  # 2min per request; prevents infinite hangs on stuck vLLM
+        )
         self._template_fn = get_template(config.prompt_template)
         self._served_model_name: str | None = None
 

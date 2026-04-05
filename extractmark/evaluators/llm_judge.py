@@ -61,7 +61,10 @@ class LLMJudgeEvaluator:
         self._configured_judge_model = judge_model
         self.temperature = temperature
         self.seed = seed
-        self._client = openai.OpenAI(base_url=base_url, api_key="not-needed")
+        self._client = openai.OpenAI(
+            base_url=base_url, api_key="not-needed",
+            timeout=120.0,
+        )
         self._prompt_template = self._load_prompt(prompt_path)
         self._served_model_name: str | None = None
 
