@@ -48,7 +48,8 @@ class SemanticSimilarityEvaluator:
             from sentence_transformers import util
 
             model = _get_sbert_model(self.model_name)
-            embeddings = model.encode([text, ground_truth], convert_to_tensor=True)
+            embeddings = model.encode([text, ground_truth], convert_to_tensor=True,
+                                      show_progress_bar=False)
             cosine_sim = util.cos_sim(embeddings[0], embeddings[1]).item()
         except Exception as e:
             logger.warning("SBERT computation failed: %s", e)
