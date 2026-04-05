@@ -102,6 +102,7 @@ class VLLMModelAdapter:
         self._client = openai.OpenAI(
             base_url=self.base_url, api_key="not-needed",
             timeout=120.0,  # 2min per request; prevents infinite hangs on stuck vLLM
+            max_retries=0,  # Disable built-in retries so timeout fires immediately
         )
         self._template_fn = get_template(config.prompt_template)
         self._served_model_name: str | None = None

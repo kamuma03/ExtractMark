@@ -64,6 +64,7 @@ class LLMJudgeEvaluator:
         self._client = openai.OpenAI(
             base_url=base_url, api_key="not-needed",
             timeout=120.0,
+            max_retries=0,
         )
         self._prompt_template = self._load_prompt(prompt_path)
         self._served_model_name: str | None = None
