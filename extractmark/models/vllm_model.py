@@ -169,6 +169,11 @@ class VLLMModelAdapter:
                 **gen_params,
             )
             raw_text = response.choices[0].message.content or ""
+        except (openai.APITimeoutError, openai.APIConnectionError) as e:
+            # Server hung or died — let the pipeline handle restart
+            logger.error("Inference failed for %s on %s page %d: %s",
+                         self.model_id, page.document_id, page.page_number, e)
+            raise
         except Exception as e:
             logger.error("Inference failed for %s on %s page %d: %s",
                          self.model_id, page.document_id, page.page_number, e)

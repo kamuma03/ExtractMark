@@ -386,10 +386,17 @@ class BenchmarkPipeline:
                     )
 
                     # If the server is unresponsive after a timeout, restart it
-                    if self._server_restart_fn and ("timed out" in str(e).lower()
-                            or "connection error" in str(e).lower()):
+                    _is_server_error = False
+                    try:
+                        import openai as _oai
+                        _is_server_error = isinstance(e, (_oai.APITimeoutError, _oai.APIConnectionError))
+                    except ImportError:
+                        _is_server_error = "timed out" in str(e).lower()
+
+                    if self._server_restart_fn and _is_server_error:
+                        logger.warning("Server error detected (%s), checking health...", type(e).__name__)
                         if hasattr(adapter, "health_check") and not adapter.health_check():
-                            logger.warning("Server unresponsive after error, restarting...")
+                            logger.warning("Server unresponsive, restarting...")
                             console.print("  [yellow]Server unresponsive — restarting...[/yellow]")
                             if self._server_restart_fn():
                                 logger.info("Server restarted successfully")
