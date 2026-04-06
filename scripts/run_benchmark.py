@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -57,13 +58,15 @@ TRUST_REMOTE_CODE_MODELS = {"M-01", "M-03", "M-06", "M-09"}
 # Models that need extra pip dependencies inside the vLLM env
 MODEL_EXTRA_DEPS = {
     "M-01": ["timm", "open_clip_torch", "albumentations"],
+    "M-03": ["verovio"],
 }
 
 # DGX Spark total unified memory (GB) -- GPU and CPU share the same pool
 SYSTEM_MEMORY_GB = 128
 
-# Absolute cap on GPU memory fraction (safety margin for OS + libraries)
-MAX_GPU_MEM_UTIL = 0.80
+# Absolute cap on GPU memory fraction -- on a dedicated DGX Spark the model
+# runs alone so we can use almost all of the 128 GB UMA pool.
+MAX_GPU_MEM_UTIL = 0.95
 
 # Minimum GPU memory fraction (vLLM needs enough for model + KV cache + CUDA graphs)
 MIN_GPU_MEM_UTIL = 0.10
@@ -82,8 +85,9 @@ def _compute_gpu_memory_utilization(config: ModelConfig) -> float:
         # Unknown size -- use a conservative default
         return 0.40
 
-    # model weights + ~1.5x for KV cache + 2 GB fixed overhead
-    needed_gb = config.model_size_gb * 2.5 + 2
+    # model weights + ~2.5x for KV cache + activations + 4 GB fixed overhead
+    # (generous headroom prevents timeouts from KV cache pressure)
+    needed_gb = config.model_size_gb * 3.5 + 4
     util = needed_gb / SYSTEM_MEMORY_GB
 
     return max(MIN_GPU_MEM_UTIL, min(MAX_GPU_MEM_UTIL, round(util, 2)))
@@ -243,8 +247,10 @@ class VLLMServerManager:
         false positives from a dying previous server on the same port.
         """
         import openai
+        # Disable built-in retries to avoid flooding logs with retry noise
         client = openai.OpenAI(
-            base_url=f"http://localhost:{self.port}/v1", api_key="not-needed"
+            base_url=f"http://localhost:{self.port}/v1", api_key="not-needed",
+            max_retries=0, timeout=5.0,
         )
 
         start = time.time()
@@ -318,7 +324,8 @@ class VLLMServerManager:
         try:
             import openai
             client = openai.OpenAI(
-                base_url=f"http://localhost:{self.port}/v1", api_key="not-needed"
+                base_url=f"http://localhost:{self.port}/v1", api_key="not-needed",
+                max_retries=0, timeout=5.0,
             )
             client.models.list()
             return True
@@ -340,6 +347,14 @@ def run_benchmark(args: argparse.Namespace) -> None:
         cfg.run.evaluators = args.evaluators
     if args.max_pages is not None:
         cfg.run.max_pages = args.max_pages
+
+    # --clean: archive previous results so the run starts from scratch
+    results_dir = Path("results")
+    if args.clean and results_dir.exists():
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = results_dir.with_name(f"results_backup_{stamp}")
+        shutil.move(str(results_dir), str(backup))
+        console.print(f"[yellow]Moved previous results to {backup}[/yellow]")
 
     if args.no_serve:
         # Run pipeline directly (assume server is already running)
@@ -482,6 +497,7 @@ Examples:
   python scripts/run_benchmark.py -m M-01 -m M-08 -d D-01 -e L1    # Specific
   python scripts/run_benchmark.py --no-serve                         # Server already running
   python scripts/run_benchmark.py --docker                           # Use Docker
+  python scripts/run_benchmark.py --clean                            # Discard cached results
         """,
     )
     parser.add_argument(
@@ -495,6 +511,7 @@ Examples:
     parser.add_argument("--port", type=int, default=8000, help="vLLM port (default: 8000)")
     parser.add_argument("--docker", action="store_true", help="Use Docker for vLLM")
     parser.add_argument("--no-serve", action="store_true", help="Skip server management")
+    parser.add_argument("--clean", action="store_true", help="Archive previous results and start fresh")
     args = parser.parse_args()
 
     run_benchmark(args)

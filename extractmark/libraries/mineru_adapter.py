@@ -26,7 +26,7 @@ class MinerUAdapter:
 
     def process_document(self, doc_path: Path) -> list[PageOutput]:
         from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
-        from magic_pdf.pipe.UNIPipe import UNIPipe
+        from magic_pdf.tools.common import do_parse
 
         document_id = doc_path.stem
         outputs: list[PageOutput] = []
@@ -34,23 +34,25 @@ class MinerUAdapter:
         try:
             start = time.perf_counter()
 
-            # Read PDF bytes
-            pdf_bytes = doc_path.read_bytes()
-
             # Set up output paths
             output_dir = Path("results") / self.lib_id / document_id
             output_dir.mkdir(parents=True, exist_ok=True)
+            image_dir = output_dir / "images"
+            image_dir.mkdir(parents=True, exist_ok=True)
 
-            image_writer = FileBasedDataWriter(str(output_dir / "images"))
-            reader = FileBasedDataReader("")
+            image_writer = FileBasedDataWriter(str(image_dir))
 
-            # Run MinerU pipeline
-            pipe = UNIPipe(pdf_bytes, {"_pdf_type": "", "model_list": []}, image_writer)
-            pipe.pipe_classify()
-            pipe.pipe_analyze()
-            pipe.pipe_parse()
+            # Read PDF bytes
+            pdf_bytes = doc_path.read_bytes()
 
-            md_content = pipe.pipe_mk_markdown(str(output_dir / "images"), drop_mode="none")
+            # Run MinerU pipeline via the current API
+            md_content = do_parse(
+                pdf_bytes=pdf_bytes,
+                model_list=[],
+                image_writer=image_writer,
+                is_debug=False,
+                input_model_is_empty=True,
+            )
             elapsed_ms = (time.perf_counter() - start) * 1000
 
             # Split by page markers if present
@@ -66,7 +68,7 @@ class MinerUAdapter:
                 ))
 
         except ImportError:
-            logger.error("MinerU (magic-pdf) not installed. Run: pip install mineru")
+            logger.error("MinerU (magic-pdf) not installed. Run: pip install magic-pdf")
         except Exception as e:
             logger.error("MinerU failed on %s: %s", doc_path, e)
 

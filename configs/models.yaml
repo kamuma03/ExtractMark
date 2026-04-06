@@ -58,12 +58,12 @@ models:
 
   M-06:
     name: "GLM-OCR"
-    hf_model_id: "THUDM/glm-ocr-2b"
+    hf_model_id: "zai-org/GLM-OCR"
     dtype: "bfloat16"
     supports_bbox: true
     prompt_template: "glm_ocr"
     output_format: "markdown"
-    model_size_gb: 4
+    model_size_gb: 3
     vllm_args: ["--dtype", "bfloat16"]
     generation_params:
       temperature: 0.0
