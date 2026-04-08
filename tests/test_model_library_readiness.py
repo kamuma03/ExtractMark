@@ -59,8 +59,9 @@ def all_library_ids(full_config):
 # ---------------------------------------------------------------------------
 
 ALL_RUN_MODELS = [
-    "M-01", "M-02", "M-03", "M-04", "M-06",
+    "M-01", "M-02", "M-04", "M-06",
     "M-07", "M-08", "M-09", "M-10", "M-11", "M-12", "M-13",
+    # M-03 (GOT-OCR2) excluded: incompatible with current vLLM version
 ]
 
 ALL_RUN_LIBRARIES = [
@@ -230,15 +231,16 @@ class TestLibraryAdapterContract:
 # ---------------------------------------------------------------------------
 
 class TestGPUMemoryComputation:
-    """GPU memory formula must produce sane values for every model."""
+    """GPU memory allocation must give every model enough headroom."""
 
     @pytest.mark.parametrize("model_id", ALL_RUN_MODELS)
-    def test_gpu_mem_util_in_range(self, full_config, model_id):
-        from run_benchmark import _compute_gpu_memory_utilization, MIN_GPU_MEM_UTIL, MAX_GPU_MEM_UTIL
+    def test_gpu_mem_util_is_default(self, full_config, model_id):
+        from run_benchmark import _compute_gpu_memory_utilization, DEFAULT_GPU_MEM_UTIL
         cfg = full_config.models[model_id]
         util = _compute_gpu_memory_utilization(cfg)
-        assert MIN_GPU_MEM_UTIL <= util <= MAX_GPU_MEM_UTIL, (
-            f"{model_id} gpu_mem_util {util} outside [{MIN_GPU_MEM_UTIL}, {MAX_GPU_MEM_UTIL}]"
+        expected = cfg.gpu_memory_utilization if cfg.gpu_memory_utilization is not None else DEFAULT_GPU_MEM_UTIL
+        assert util == expected, (
+            f"{model_id} gpu_mem_util {util} != expected {expected}"
         )
 
     @pytest.mark.parametrize("model_id", ALL_RUN_MODELS)
@@ -251,23 +253,24 @@ class TestGPUMemoryComputation:
             f"{model_id} reserves {reserved_gb:.1f}GB but model needs {cfg.model_size_gb}GB"
         )
 
-    def test_unknown_model_size_gets_conservative_default(self):
+    def test_default_when_no_override(self):
+        from run_benchmark import _compute_gpu_memory_utilization, DEFAULT_GPU_MEM_UTIL
+        cfg = ModelConfig(name="Test", hf_model_id="org/test", model_size_gb=14)
+        util = _compute_gpu_memory_utilization(cfg)
+        assert util == DEFAULT_GPU_MEM_UTIL
+
+    def test_override_respected(self):
         from run_benchmark import _compute_gpu_memory_utilization
+        cfg = ModelConfig(name="Test", hf_model_id="org/test", model_size_gb=14,
+                          gpu_memory_utilization=0.50)
+        util = _compute_gpu_memory_utilization(cfg)
+        assert util == 0.50
+
+    def test_no_size_uses_default(self):
+        from run_benchmark import _compute_gpu_memory_utilization, DEFAULT_GPU_MEM_UTIL
         cfg = ModelConfig(name="Unknown", hf_model_id="org/unknown", model_size_gb=None)
         util = _compute_gpu_memory_utilization(cfg)
-        assert util == 0.40, f"Unknown model size should get 0.40, got {util}"
-
-    def test_max_cap_applied(self):
-        from run_benchmark import _compute_gpu_memory_utilization, MAX_GPU_MEM_UTIL
-        cfg = ModelConfig(name="Huge", hf_model_id="org/huge", model_size_gb=200)
-        util = _compute_gpu_memory_utilization(cfg)
-        assert util == MAX_GPU_MEM_UTIL
-
-    def test_min_floor_applied(self):
-        from run_benchmark import _compute_gpu_memory_utilization, MIN_GPU_MEM_UTIL
-        cfg = ModelConfig(name="Tiny", hf_model_id="org/tiny", model_size_gb=0.1)
-        util = _compute_gpu_memory_utilization(cfg)
-        assert util == MIN_GPU_MEM_UTIL
+        assert util == DEFAULT_GPU_MEM_UTIL
 
 
 # ---------------------------------------------------------------------------
@@ -355,10 +358,13 @@ class TestLLMJudgeReadiness:
         )
 
     def test_judge_gpu_memory_reasonable(self, full_config):
-        from run_benchmark import _compute_gpu_memory_utilization, SYSTEM_MEMORY_GB
+        from run_benchmark import _compute_gpu_memory_utilization, SYSTEM_MEMORY_GB, DEFAULT_GPU_MEM_UTIL
         judge_id = full_config.evaluation.judge_model
         judge_cfg = full_config.models[judge_id]
         util = _compute_gpu_memory_utilization(judge_cfg)
+        assert util >= DEFAULT_GPU_MEM_UTIL, (
+            f"Judge gpu_mem_util {util} is below default {DEFAULT_GPU_MEM_UTIL}"
+        )
         reserved_gb = util * SYSTEM_MEMORY_GB
         assert reserved_gb >= judge_cfg.model_size_gb, (
             f"Judge reserves {reserved_gb:.1f}GB but model needs {judge_cfg.model_size_gb}GB"

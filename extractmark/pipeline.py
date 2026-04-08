@@ -32,17 +32,25 @@ console = Console()
 class BenchmarkPipeline:
     """Central orchestrator for ExtractMark benchmark runs."""
 
-    def __init__(self, config: ExtractMarkConfig, server_restart_fn=None):
+    def __init__(self, config: ExtractMarkConfig, server_restart_fn=None,
+                 results_dir: Path | None = None, report_dir: Path | None = None):
         """
         Args:
             config: Benchmark configuration.
             server_restart_fn: Optional callback ``() -> bool`` that restarts
                 the vLLM server if it becomes unresponsive. The pipeline calls
                 this after a timeout error to recover automatically.
+            results_dir: Directory to store run results. Defaults to
+                ``results/<run_name>_<timestamp>/``.
+            report_dir: Directory to store reports. Defaults to
+                ``<results_dir>/report/``.
         """
         self.config = config
-        self.results_dir = Path("results")
-        self.report_dir = Path("report")
+        if results_dir is None:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_dir = Path("results") / f"{config.run.name}_{stamp}"
+        self.results_dir = results_dir
+        self.report_dir = report_dir if report_dir is not None else self.results_dir / "report"
         self._run_results: list[RunResult] = []
         self._start_time: float = 0
         self._completed_combos: int = 0
@@ -578,8 +586,8 @@ class BenchmarkPipeline:
         console.print(f"[bold green]Benchmark complete![/bold green]")
         console.print(f"  Total time: {timedelta(seconds=int(total_elapsed))}")
         console.print(f"  Results:    {self.results_dir}/")
-        console.print(f"  Report:     {self.report_dir}/benchmark_summary.md")
-        console.print(f"  CSV:        {self.report_dir}/benchmark_summary.csv")
+        console.print(f"  Report:     {self.report_dir / 'benchmark_summary.md'}")
+        console.print(f"  CSV:        {self.report_dir / 'benchmark_summary.csv'}")
         console.print(f"  Log:        {log_path}")
 
         logger.info("Benchmark complete. Total time: %s", timedelta(seconds=int(total_elapsed)))

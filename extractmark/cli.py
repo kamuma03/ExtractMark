@@ -78,11 +78,31 @@ def serve(
 
 @app.command()
 def report(
-    results_dir: Path = typer.Argument(Path("results"), help="Results directory"),
-    output_dir: Path = typer.Option(Path("report"), "--output", "-o", help="Output directory"),
+    results_dir: Path = typer.Argument(None, help="Run directory (default: latest run under results/)"),
+    output_dir: Path = typer.Option(None, "--output", "-o", help="Output directory (default: <results_dir>/report)"),
 ) -> None:
     """Generate benchmark summary report from existing results."""
     from extractmark.reporting.summary import SummaryReporter
+
+    if results_dir is None:
+        # Find the latest run folder under results/
+        base = Path("results")
+        if not base.exists():
+            console.print("[red]No results/ directory found[/red]")
+            raise typer.Exit(1)
+        run_dirs = sorted(
+            [d for d in base.iterdir() if d.is_dir()],
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        if not run_dirs:
+            console.print("[red]No run folders found under results/[/red]")
+            raise typer.Exit(1)
+        results_dir = run_dirs[0]
+        console.print(f"Using latest run: [cyan]{results_dir}[/cyan]")
+
+    if output_dir is None:
+        output_dir = results_dir / "report"
 
     reporter = SummaryReporter(results_dir, output_dir)
     reporter.generate()

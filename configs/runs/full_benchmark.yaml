@@ -3,7 +3,8 @@ run:
   models:
     - "M-01"
     - "M-02"
-    - "M-03"
+    # M-03 (GOT-OCR2) disabled: incompatible with current vLLM (embed_tokens loading error)
+    # - "M-03"
     - "M-04"
     - "M-06"
     - "M-07"

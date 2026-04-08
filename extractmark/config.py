@@ -28,6 +28,7 @@ class ModelConfig(BaseModel):
     generation_params: GenerationParams = GenerationParams()
     port: int = 8000
     model_size_gb: float | None = None  # Estimated weight size for memory management
+    gpu_memory_utilization: float | None = None  # Override auto GPU memory fraction
 
 
 class LibraryConfig(BaseModel):

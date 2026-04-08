@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -64,33 +63,22 @@ MODEL_EXTRA_DEPS = {
 # DGX Spark total unified memory (GB) -- GPU and CPU share the same pool
 SYSTEM_MEMORY_GB = 128
 
-# Absolute cap on GPU memory fraction -- on a dedicated DGX Spark the model
-# runs alone so we can use almost all of the 128 GB UMA pool.
-MAX_GPU_MEM_UTIL = 0.95
-
-# Minimum GPU memory fraction (vLLM needs enough for model + KV cache + CUDA graphs)
-MIN_GPU_MEM_UTIL = 0.10
+# Default GPU memory fraction.  Each model runs *alone* on the 128 GB UMA pool,
+# so there is no reason to be conservative -- more memory means a larger KV
+# cache, which means faster inference and fewer timeouts.
+DEFAULT_GPU_MEM_UTIL = 0.90
 
 
 def _compute_gpu_memory_utilization(config: ModelConfig) -> float:
-    """Compute right-sized --gpu-memory-utilization for a model.
+    """Return the GPU memory fraction for a model.
 
-    On UMA systems like DGX Spark, --gpu-memory-utilization is a fraction of
-    *total system RAM* seen by the GPU driver (~128 GB).  Pre-allocating 85%
-    for a 1B model wastes 100+ GB.
-
-    Formula: (model_weights + KV_cache_headroom + overhead) / system_memory
+    On a dedicated DGX Spark every model runs alone on 128 GB UMA, so we
+    allocate 90 % (~115 GB) by default.  The only exception is an explicit
+    ``gpu_memory_utilization`` override in the model config.
     """
-    if config.model_size_gb is None:
-        # Unknown size -- use a conservative default
-        return 0.40
-
-    # model weights + ~2.5x for KV cache + activations + 4 GB fixed overhead
-    # (generous headroom prevents timeouts from KV cache pressure)
-    needed_gb = config.model_size_gb * 3.5 + 4
-    util = needed_gb / SYSTEM_MEMORY_GB
-
-    return max(MIN_GPU_MEM_UTIL, min(MAX_GPU_MEM_UTIL, round(util, 2)))
+    if config.gpu_memory_utilization is not None:
+        return config.gpu_memory_utilization
+    return DEFAULT_GPU_MEM_UTIL
 
 
 def _reclaim_memory() -> None:
@@ -348,17 +336,15 @@ def run_benchmark(args: argparse.Namespace) -> None:
     if args.max_pages is not None:
         cfg.run.max_pages = args.max_pages
 
-    # --clean: archive previous results so the run starts from scratch
-    results_dir = Path("results")
-    if args.clean and results_dir.exists():
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup = results_dir.with_name(f"results_backup_{stamp}")
-        shutil.move(str(results_dir), str(backup))
-        console.print(f"[yellow]Moved previous results to {backup}[/yellow]")
+    # Create a unique run directory under results/
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = Path("results") / f"{cfg.run.name}_{stamp}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = run_dir / "report"
 
     if args.no_serve:
         # Run pipeline directly (assume server is already running)
-        pipeline = BenchmarkPipeline(cfg)
+        pipeline = BenchmarkPipeline(cfg, results_dir=run_dir, report_dir=report_dir)
         pipeline.run()
         return
 
@@ -380,6 +366,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
         f"Datasets: {cfg.run.datasets}\n"
         f"Evaluators: {cfg.run.evaluators}\n"
         f"Serving: {'Docker' if args.docker else 'Native vLLM'}\n"
+        f"Run dir: {run_dir}\n"
         f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         title="[cyan]ExtractMark[/cyan]",
     ))
@@ -415,7 +402,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
                 server.stop()
                 return server.start(mid, mcfg)
 
-            pipeline = BenchmarkPipeline(single_cfg, server_restart_fn=_restart_server)
+            pipeline = BenchmarkPipeline(single_cfg, server_restart_fn=_restart_server,
+                                       results_dir=run_dir, report_dir=report_dir)
             pipeline.run()
             if pipeline.has_deferred_evaluations():
                 pipelines_with_deferred.append(pipeline)
@@ -436,7 +424,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
             lib_cfg = cfg.model_copy(deep=True)
             lib_cfg.run.models = []  # No vLLM models in this pass
 
-            pipeline = BenchmarkPipeline(lib_cfg)
+            pipeline = BenchmarkPipeline(lib_cfg, results_dir=run_dir, report_dir=report_dir)
             pipeline.run()
             if pipeline.has_deferred_evaluations():
                 pipelines_with_deferred.append(pipeline)
@@ -467,7 +455,7 @@ def run_benchmark(args: argparse.Namespace) -> None:
     # Generate final consolidated report across all runs
     try:
         from extractmark.reporting.summary import SummaryReporter
-        reporter = SummaryReporter(Path("results"), Path("report"))
+        reporter = SummaryReporter(run_dir, report_dir)
         reporter.generate()
     except KeyboardInterrupt:
         console.print("\n[yellow]Report generation interrupted.[/yellow]")
@@ -480,8 +468,8 @@ def run_benchmark(args: argparse.Namespace) -> None:
     console.print(Panel(
         f"[bold green]Benchmark Complete[/bold green]\n"
         f"Total time: {timedelta(seconds=int(total_elapsed))}\n"
-        f"Results: results/\n"
-        f"Report: report/benchmark_summary.md",
+        f"Results: {run_dir}/\n"
+        f"Report: {report_dir}/benchmark_summary.md",
         title="Done",
     ))
 
@@ -497,7 +485,7 @@ Examples:
   python scripts/run_benchmark.py -m M-01 -m M-08 -d D-01 -e L1    # Specific
   python scripts/run_benchmark.py --no-serve                         # Server already running
   python scripts/run_benchmark.py --docker                           # Use Docker
-  python scripts/run_benchmark.py --clean                            # Discard cached results
+  python scripts/run_benchmark.py                                    # Each run gets its own folder
         """,
     )
     parser.add_argument(
@@ -511,7 +499,7 @@ Examples:
     parser.add_argument("--port", type=int, default=8000, help="vLLM port (default: 8000)")
     parser.add_argument("--docker", action="store_true", help="Use Docker for vLLM")
     parser.add_argument("--no-serve", action="store_true", help="Skip server management")
-    parser.add_argument("--clean", action="store_true", help="Archive previous results and start fresh")
+    parser.add_argument("--clean", action="store_true", help="(Deprecated, no-op) Each run now gets its own folder")
     args = parser.parse_args()
 
     run_benchmark(args)
