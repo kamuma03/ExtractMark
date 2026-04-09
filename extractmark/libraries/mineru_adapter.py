@@ -25,7 +25,6 @@ class MinerUAdapter:
         )
 
     def process_document(self, doc_path: Path) -> list[PageOutput]:
-        from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
         from magic_pdf.tools.common import do_parse
 
         document_id = doc_path.stem
@@ -34,26 +33,44 @@ class MinerUAdapter:
         try:
             start = time.perf_counter()
 
-            # Set up output paths
+            # Set up output directory for MinerU
             output_dir = Path("results") / self.lib_id / document_id
             output_dir.mkdir(parents=True, exist_ok=True)
-            image_dir = output_dir / "images"
-            image_dir.mkdir(parents=True, exist_ok=True)
-
-            image_writer = FileBasedDataWriter(str(image_dir))
 
             # Read PDF bytes
             pdf_bytes = doc_path.read_bytes()
 
-            # Run MinerU pipeline via the current API
-            md_content = do_parse(
-                pdf_bytes=pdf_bytes,
+            # Run MinerU pipeline via do_parse (positional args API)
+            do_parse(
+                output_dir=str(output_dir),
+                pdf_file_name=document_id,
+                pdf_bytes_or_dataset=pdf_bytes,
                 model_list=[],
-                image_writer=image_writer,
-                is_debug=False,
-                input_model_is_empty=True,
+                parse_method="auto",
+                f_draw_span_bbox=False,
+                f_draw_layout_bbox=False,
+                f_dump_md=True,
+                f_dump_middle_json=False,
+                f_dump_model_json=False,
+                f_dump_orig_pdf=False,
+                f_dump_content_list=False,
+                formula_enable=False,
             )
             elapsed_ms = (time.perf_counter() - start) * 1000
+
+            # Read the generated Markdown file
+            md_path = output_dir / document_id / "auto" / f"{document_id}.md"
+            if not md_path.exists():
+                # Try alternative path structures
+                for candidate in output_dir.rglob("*.md"):
+                    md_path = candidate
+                    break
+
+            if md_path.exists():
+                md_content = md_path.read_text(encoding="utf-8")
+            else:
+                md_content = ""
+                logger.warning("MinerU produced no Markdown output for %s", doc_path)
 
             # Split by page markers if present
             pages = md_content.split("\n---\n") if "\n---\n" in md_content else [md_content]
@@ -67,8 +84,8 @@ class MinerUAdapter:
                     metadata={"library": self.lib_id},
                 ))
 
-        except ImportError:
-            logger.error("MinerU (magic-pdf) not installed. Run: pip install magic-pdf")
+        except (ImportError, ModuleNotFoundError) as e:
+            logger.error("MinerU dependency missing: %s. Run: pip install magic-pdf[full]", e)
         except Exception as e:
             logger.error("MinerU failed on %s: %s", doc_path, e)
 

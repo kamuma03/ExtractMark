@@ -55,7 +55,7 @@ class PyMuPDFAdapter:
                     inference_time_ms=elapsed_ms / len(pages),
                     metadata={"library": self.lib_id, "method": "pymupdf4llm"},
                 ))
-        except ImportError:
+        except (ImportError, AttributeError):
             # Fallback to plain PyMuPDF text extraction
             for i, page in enumerate(doc):
                 start = time.perf_counter()

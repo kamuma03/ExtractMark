@@ -25,14 +25,30 @@ class DoclingAdapter:
         )
 
     def process_document(self, doc_path: Path) -> list[PageOutput]:
-        from docling.document_converter import DocumentConverter
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import (
+            PdfPipelineOptions,
+            AcceleratorOptions,
+            AcceleratorDevice,
+        )
 
         document_id = doc_path.stem
         outputs: list[PageOutput] = []
 
         try:
             start = time.perf_counter()
-            converter = DocumentConverter()
+            pipeline_options = PdfPipelineOptions()
+            pipeline_options.accelerator_options = AcceleratorOptions(
+                device=AcceleratorDevice.AUTO,
+            )
+            converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(
+                        pipeline_options=pipeline_options,
+                    ),
+                }
+            )
             result = converter.convert(str(doc_path))
             elapsed_ms = (time.perf_counter() - start) * 1000
 
